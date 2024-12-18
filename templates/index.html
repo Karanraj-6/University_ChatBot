@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <!-- Floating Button -->
+    <div id="chatbot-button" draggable="true" title="Chat with us!"><img src="{{ url_for('static', filename='chatbot_icon.png') }}" alt="Chatbot Icon" class="chatbot-icon" >
+    </div>
+
+    <!-- Chat Window (hidden by default) -->
+    <div id="chat-window" class="hidden">
+        <div id="chat-header">
+            <span>SRU Chatbot</span>
+            <button id="close-btn">✖</button>
+        </div>
+        <div id="chat-body"></div>
+        <div id="chat-footer">
+            <input type="text" id="chat-input" placeholder="Type your message...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
