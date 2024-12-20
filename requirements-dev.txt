@@ -1,10 +1,16 @@
-langchain == 0.3.12
-huggingface
-huggingface_hub==0.27.0
-chromadb==0.5.23
-chromadb
-langchain-community
-langchain-core
-flask
-python-dotenv
-bs4
+
+langchain==0.0.320
+transformers==4.24.0
+huggingface_hub==0.10.1
+faiss-cpu==1.7.2
+flask==2.1.0
+beautifulsoup4==4.10.0
+pypdf
+sentence-transformers==2.2.0
+pinecone
+pinecone-client==2.2.4
+
+
+
+langchain_community==0.3.13
+

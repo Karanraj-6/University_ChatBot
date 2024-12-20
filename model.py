@@ -1,5 +1,3 @@
-from flask import Flask, request, jsonify, render_template
-import time
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from dotenv import load_dotenv
@@ -8,27 +6,21 @@ from langchain.llms import HuggingFaceHub
 import faiss
 import pickle
 import os
-from langchain.embeddings import SentenceTransformerEmbeddings  
-from sentence_transformers import SentenceTransformer
+
 load_dotenv()
 hf_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 def get_answer(user_question):
-    # index_path = 'faiss_index'  # Path to your faiss_index folder
-    # faiss_index = faiss.read_index(os.path.join(index_path, 'index.faiss'))
+    index_path = 'faiss_index'  # Path to your faiss_index folder
+    faiss_index = faiss.read_index(os.path.join(index_path, 'index.faiss'))
 
-    # # Load the embeddings model stored in index.pkl
-    # with open(os.path.join(index_path, 'index.pkl'), 'rb') as f:
-    #     embeddings_model = pickle.load(f)
+    # Load the embeddings model stored in index.pkl
+    with open(os.path.join(index_path, 'index.pkl'), 'rb') as f:
+        embeddings_model = pickle.load(f)
 
-    # # Now you can create a retriever to query the FAISS index
-    # retriever = FAISS(index=faiss_index, embeddings=embeddings_model)
-    
-    model_name = "sentence-transformers/all-MiniLM-L6-v2"
-    model = SentenceTransformer(model_name)
-    embeddings_model = SentenceTransformerEmbeddings(model_name=model_name)
-    new_db = FAISS.load_local("faiss_index", embeddings_model,allow_dangerous_deserialization=True)
-    retriever = new_db.as_retriever()
+    # Now you can create a retriever to query the FAISS index
+    retriever = FAISS(index=faiss_index, embeddings_model=embeddings_model)
+
     # Set up the HuggingFace LLM
     llm = HuggingFaceHub(
         repo_id="tiiuae/falcon-7b-instruct",  
@@ -78,27 +70,18 @@ def get_answer(user_question):
     except Exception as e:
         return f"An error occurred: {e}"  # Return error message
 
-app = Flask(__name__)
-
-
-def query_model(user_question):
-    time.sleep(1)   # Simulate "thinking" time
-    answer = get_answer(user_question)  # Return the answer from the function here
-    return answer
-@app.route('/')
-def home():
-    return render_template('index.html')
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    data = request.json
-    user_message = data.get("message", "")
-    if user_message.strip() == "":
-        return jsonify({"response": "Please type a message."})
+# Main interaction loop for the Flask app
+if __name__ == "__main__":
+    print("Welcome to the Campus Assistant! Type 'exit' to end the conversation.\n")
     
-    # Process the message with the model
-    bot_response = query_model(user_message)
-    return jsonify({"response": bot_response})
+    while True:
+        user_query = input("Your Question: ")
+        
+        # Exit the conversation if the user types 'exit' or 'quit'
+        if user_query.lower() in ["exit", "quit"]:
+            print("Thank you for using the Campus Assistant. Bye for now 😊!")
+            break
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        # Get the answer and print it
+        answer = get_answer(user_query)
+        print("Answer:", answer)
