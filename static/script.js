@@ -36,11 +36,27 @@ async function sendMessage() {
     const userMessage = chatInput.value.trim();
     if (!userMessage) return;
 
-    // Display user message
+    // Create a container for the message and avatar
+    const messageContainer = document.createElement("div");
+    messageContainer.classList.add("message-container");
+
+    // Add user avatar
+    const userAvatar = document.createElement("img");
+    userAvatar.src = "static/user.png";
+    userAvatar.alt = "User";
+    userAvatar.classList.add("user-avatar");
+    messageContainer.appendChild(userAvatar);
+
+    // Add user message
     const userMessageDiv = document.createElement("div");
     userMessageDiv.classList.add("user-message");
-    userMessageDiv.textContent = `You: ${userMessage}`;
-    chatBody.appendChild(userMessageDiv);
+    userMessageDiv.textContent = userMessage;
+    messageContainer.appendChild(userMessageDiv);
+
+    // Append the message container to the chat body
+    chatBody.appendChild(messageContainer);
+
+    // Clear the chat input
     chatInput.value = "";
 
     // Display "thinking..." indicator with animation
@@ -58,16 +74,29 @@ async function sendMessage() {
             body: JSON.stringify({ message: userMessage }),
         });
         const data = await response.json();
-
+    
         // Remove "thinking..." and display bot response with image
         chatBody.removeChild(thinkingDiv);
+    
+        // Create a container for the bot message and avatar
+        const botMessageContainer = document.createElement("div");
+        botMessageContainer.classList.add("message-container");
+    
+        // Add bot avatar
+        const botAvatar = document.createElement("img");
+        botAvatar.src = "/static/chatbot_icon.png";
+        botAvatar.alt = "Bot";
+        botAvatar.classList.add("bot-avatar");
+        botMessageContainer.appendChild(botAvatar);
+    
+        // Add bot message
         const botMessageDiv = document.createElement("div");
         botMessageDiv.classList.add("bot-message");
-        botMessageDiv.innerHTML = `
-            <img src="/static/chatbot_icon.png" alt="Bot" class="bot-avatar">
-            <span class="bot-text">${data.response}</span>
-        `;
-        chatBody.appendChild(botMessageDiv);
+        botMessageDiv.textContent = data.response;
+        botMessageContainer.appendChild(botMessageDiv);
+    
+        // Append the bot message container to the chat body
+        chatBody.appendChild(botMessageContainer);
     } catch (error) {
         console.error("Error:", error);
         chatBody.removeChild(thinkingDiv);
@@ -76,7 +105,7 @@ async function sendMessage() {
         errorDiv.textContent = "Bot: Sorry, something went wrong!";
         chatBody.appendChild(errorDiv);
     }
-
+    
     // Scroll to the bottom
     chatBody.scrollTop = chatBody.scrollHeight;
 }
