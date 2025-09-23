@@ -1,16 +1,27 @@
 
-langchain==0.0.320
-transformers==4.24.0
-huggingface_hub==0.10.1
+# Core Dependencies
+flask==3.1.0
+python-dotenv==1.0.1
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-core==0.3.27
+langchain-text-splitters==0.3.4
+
+# AI/ML Libraries
+transformers==4.47.1
+huggingface-hub==0.27.0
+sentence-transformers==3.3.1
+torch==2.5.1
 faiss-cpu==1.7.2
-flask==2.1.0
+
+# Document Processing
+pypdf==5.1.0
 beautifulsoup4==4.10.0
-pypdf
-sentence-transformers==2.2.0
-pinecone
+
+# Data Processing
+numpy==1.26.4
+pandas==2.2.3
+
+# Optional: Pinecone (for future use)
 pinecone-client==2.2.4
-
-
-
-langchain_community==0.3.13
 
