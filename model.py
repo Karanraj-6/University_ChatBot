@@ -1,8 +1,8 @@
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from dotenv import load_dotenv
-from langchain.vectorstores import FAISS
-from langchain.llms import HuggingFaceHub
+from langchain_community.vectorstores import FAISS
+from langchain_community.llms import HuggingFaceHub
 import faiss
 import pickle
 import os
