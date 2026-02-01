@@ -6,10 +6,9 @@ from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
+from langchain_community.llms import HuggingFaceHub
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from sentence_transformers import SentenceTransformer
-
-from langchain.chat_models import HuggingFaceChat
 
 # ------------------ ENV ------------------
 load_dotenv()
@@ -30,9 +29,10 @@ retriever = db.as_retriever(search_kwargs={"k": 4})
 
 # ------------------ LOAD LLM ------------------
 print(" Loading LLM (HF Inference)...")
-llm = HuggingFaceChat(
-    model_name="Qwen/Qwen-32B-Preview",  # can switch to Zephyr 7B too
+llm = HuggingFaceHub(
+    repo_id="Qwen/Qwen-32B-Preview",
     huggingfacehub_api_token=HF_TOKEN,
+    task="text-generation",
     model_kwargs={
         "temperature": 0.3,
         "max_new_tokens": 256,
@@ -84,7 +84,7 @@ def get_answer(question: str) -> str:
     retries = 2
     for attempt in range(retries):
         try:
-            response = qa_chain.invoke({"query": question})
+            response = qa_chain({"query": question})
             answer = response.get("result", "").strip()
             return answer if answer else "No answer generated."
         except Exception as e:
