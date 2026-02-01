@@ -6,41 +6,33 @@ from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFaceHub
 from langchain_community.embeddings import SentenceTransformerEmbeddings
-
 from sentence_transformers import SentenceTransformer
 
-# --------------------------------------------------
-# ENV
-# --------------------------------------------------
+from langchain.chat_models import HuggingFaceChat
+
+# ------------------ ENV ------------------
 load_dotenv()
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-
 if not HF_TOKEN:
     raise RuntimeError("HUGGINGFACEHUB_API_TOKEN not set")
 
-# --------------------------------------------------
-# LOAD MODELS ONCE (VERY IMPORTANT)
-# --------------------------------------------------
+# ------------------ LOAD EMBEDDINGS ------------------
 print(" Loading embedding model...")
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 sentence_model = SentenceTransformer(EMBED_MODEL_NAME)
 embeddings = SentenceTransformerEmbeddings(model_name=EMBED_MODEL_NAME)
 
+# ------------------ LOAD FAISS ------------------
 print(" Loading FAISS index...")
-db = FAISS.load_local(
-    "faiss_index",
-    embeddings,
-    allow_dangerous_deserialization=True
-)
+db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
 retriever = db.as_retriever(search_kwargs={"k": 4})
 
+# ------------------ LOAD LLM ------------------
 print(" Loading LLM (HF Inference)...")
-llm = HuggingFaceHub(
-    repo_id="HuggingFaceH4/zephyr-7b-beta",
+llm = HuggingFaceChat(
+    model_name="Qwen/Qwen-32B-Preview",  # can switch to Zephyr 7B too
     huggingfacehub_api_token=HF_TOKEN,
-    task="text-generation",
     model_kwargs={
         "temperature": 0.3,
         "max_new_tokens": 256,
@@ -48,6 +40,7 @@ llm = HuggingFaceHub(
     }
 )
 
+# ------------------ PROMPT ------------------
 PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
@@ -70,6 +63,7 @@ Answer:
 """
 )
 
+# ------------------ QA CHAIN ------------------
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=retriever,
@@ -80,9 +74,7 @@ qa_chain = RetrievalQA.from_chain_type(
 
 print(" All models loaded")
 
-# --------------------------------------------------
-# FLASK APP
-# --------------------------------------------------
+# ------------------ FLASK APP ------------------
 app = Flask(__name__)
 
 def get_answer(question: str) -> str:
@@ -90,7 +82,6 @@ def get_answer(question: str) -> str:
         return "Please enter a valid question."
 
     retries = 2
-
     for attempt in range(retries):
         try:
             response = qa_chain.invoke({"query": question})
@@ -110,12 +101,9 @@ def home():
 def chat():
     data = request.get_json(force=True)
     message = data.get("message", "").strip()
-
     reply = get_answer(message)
     return jsonify({"response": reply})
 
-# --------------------------------------------------
-# ENTRYPOINT (LOCAL ONLY)
-# --------------------------------------------------
+# ------------------ ENTRYPOINT (LOCAL ONLY) ------------------
 if __name__ == "__main__":
     app.run(debug=True)
