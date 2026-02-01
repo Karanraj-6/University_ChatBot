@@ -1,2 +1,6 @@
-university_env
+__pycache__/
+*.pyc
+*.pyo
 .env
+.venv/
+venv/
