@@ -1,23 +1,19 @@
 from flask import Flask, request, jsonify, render_template
 import time
+import os
+from dotenv import load_dotenv
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
-import faiss
-import pickle
-import os
 from langchain_community.embeddings import SentenceTransformerEmbeddings  
 from sentence_transformers import SentenceTransformer
-
 
 # ------------------ ENV ------------------
 load_dotenv()
 hf_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
-# ------------------ LOAD ONCE (IMPORTANT FIX) ------------------
-
+# ------------------ LOAD ONCE (IMPORTANT) ------------------
 print("Loading embeddings model...")
 model_name = "sentence-transformers/all-MiniLM-L6-v2"
 sentence_model = SentenceTransformer(model_name)
@@ -67,23 +63,26 @@ qa_chain = RetrievalQA.from_chain_type(
     output_key="result"
 )
 
-print(" All models loaded successfully")
+print("All models loaded successfully")
 
 # ------------------ APP ------------------
-
 app = Flask(__name__)
 
-def get_answer(user_question):
+def get_answer(user_question: str) -> str:
+    """Return answer to user_question. Always returns a string."""
     if user_question.lower() in ["exit", "quit"]:
-        return "Thank you for using the Campus Assistant. Bye for now !"
+        return "Thank you for using the Campus Assistant. Bye for now!"
 
     try:
         response = qa_chain({"query": user_question})
-        answer = response.get("result", "").strip()
-        return answer or "No answer generated."
+        answer = response.get("result", "")
+        if not answer:
+            return "No answer generated."
+        return str(answer)
 
     except Exception as e:
-        return f"An error occurred: {e}"
+        # Safely convert exception to string
+        return "The assistant is temporarily unavailable. Please try again."
 
 @app.route("/")
 def home():
@@ -97,20 +96,11 @@ def chat():
     if not user_message:
         return jsonify({"response": "Please type a message."})
 
-    try:
-        time.sleep(1)
-        bot_response = get_answer(user_message)
-
-        # HARD SAFETY: force string
-        if not isinstance(bot_response, str):
-            bot_response = str(bot_response)
-
-    except Exception as e:
-        bot_response = "The assistant is temporarily unavailable. Please try again."
+    # Always returns string, so no need for try/except here
+    bot_response = get_answer(user_message)
 
     return jsonify({"response": bot_response})
 
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # use Render's PORT or fallback to 5000
+    port = int(os.environ.get("PORT", 5000))  # use Render's PORT or fallback
     app.run(host="0.0.0.0", port=port)
