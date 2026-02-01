@@ -36,11 +36,8 @@ print(" Loading LLM (HF Endpoint)...")
 llm = HuggingFaceEndpoint(
     endpoint_url="https://api-inference.huggingface.co/models/Qwen/QwQ-32B-Preview",  # router endpoint for that model
     huggingfacehub_api_token=HF_TOKEN,
-    task="text-generation",
-    model_kwargs={
-        "temperature": 0.3,
-        "max_new_tokens": 512
-    }
+    temperature=0.3,
+    max_new_tokens=1024,
 )
 
 
