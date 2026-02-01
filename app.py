@@ -1,56 +1,72 @@
 from flask import Flask, request, jsonify, render_template
-import time
 import os
+import time
 from dotenv import load_dotenv
+
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
-from langchain_community.embeddings import SentenceTransformerEmbeddings  
+from langchain_community.embeddings import SentenceTransformerEmbeddings
+
 from sentence_transformers import SentenceTransformer
 
-# ------------------ ENV ------------------
+# --------------------------------------------------
+# ENV
+# --------------------------------------------------
 load_dotenv()
-hf_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
-# ------------------ LOAD ONCE (IMPORTANT) ------------------
-print("Loading embeddings model...")
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-sentence_model = SentenceTransformer(model_name)
-embeddings_model = SentenceTransformerEmbeddings(model_name=model_name)
+if not HF_TOKEN:
+    raise RuntimeError("HUGGINGFACEHUB_API_TOKEN not set")
 
-print("Loading FAISS index...")
+# --------------------------------------------------
+# LOAD MODELS ONCE (VERY IMPORTANT)
+# --------------------------------------------------
+print(" Loading embedding model...")
+EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+sentence_model = SentenceTransformer(EMBED_MODEL_NAME)
+embeddings = SentenceTransformerEmbeddings(model_name=EMBED_MODEL_NAME)
+
+print(" Loading FAISS index...")
 db = FAISS.load_local(
     "faiss_index",
-    embeddings_model,
+    embeddings,
     allow_dangerous_deserialization=True
 )
-retriever = db.as_retriever()
+retriever = db.as_retriever(search_kwargs={"k": 4})
 
-print("Loading LLM...")
+print(" Loading LLM (HF Inference)...")
 llm = HuggingFaceHub(
-    repo_id="Qwen/QwQ-32B-Preview",
-    huggingfacehub_api_token=hf_api_token,
+    repo_id="HuggingFaceH4/zephyr-7b-beta",
+    huggingfacehub_api_token=HF_TOKEN,
+    task="text-generation",
     model_kwargs={
-        "temperature": 0.4,
-        "max_length": 5000
-    },
-    task="text-generation"
+        "temperature": 0.3,
+        "max_new_tokens": 256,
+        "top_p": 0.9
+    }
 )
 
-prompt_template = PromptTemplate(
+PROMPT = PromptTemplate(
     input_variables=["context", "question"],
     template="""
-You are an AI assistant made for SR University. Use the provided context to answer the question.
-Provide only the answer, not the context or instructions.
+You are an AI assistant for SR University.
 
-If the context does not contain the answer, respond with:
-"The context does not provide sufficient information. I couldn't find enough information. Please check back later or contact the SR University support team for more details. Contact: 0(870) 281-8333/8311 MAIL : info@sru.edu.in"
+Answer the question using ONLY the provided context.
+If the answer is not present, reply exactly with:
 
-Context: {context}
-Question: {question}
+"The context does not provide sufficient information. Please contact SR University support.
+Phone: 0870-281-8333 / 8311
+Email: info@sru.edu.in"
 
-Helpful Answer:
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
 """
 )
 
@@ -58,31 +74,33 @@ qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=retriever,
     chain_type="stuff",
-    chain_type_kwargs={"prompt": prompt_template},
-    return_source_documents=False,
-    output_key="result"
+    chain_type_kwargs={"prompt": PROMPT},
+    return_source_documents=False
 )
 
-print("All models loaded successfully")
+print(" All models loaded")
 
-# ------------------ APP ------------------
+# --------------------------------------------------
+# FLASK APP
+# --------------------------------------------------
 app = Flask(__name__)
 
-def get_answer(user_question: str) -> str:
-    """Return answer to user_question. Always returns a string."""
-    if user_question.lower() in ["exit", "quit"]:
-        return "Thank you for using the Campus Assistant. Bye for now!"
+def get_answer(question: str) -> str:
+    if not question:
+        return "Please enter a valid question."
 
-    try:
-        response = qa_chain({"query": user_question})
-        answer = response.get("result", "")
-        if not answer:
-            return "No answer generated."
-        return str(answer)
+    retries = 2
 
-    except Exception as e:
-        # Safely convert exception to string
-        return "The assistant is temporarily unavailable. Please try again."
+    for attempt in range(retries):
+        try:
+            response = qa_chain.invoke({"query": question})
+            answer = response.get("result", "").strip()
+            return answer if answer else "No answer generated."
+        except Exception as e:
+            print(f" LLM error (attempt {attempt+1}): {e}")
+            time.sleep(1)
+
+    return "The assistant is temporarily unavailable. Please try again."
 
 @app.route("/")
 def home():
@@ -90,17 +108,14 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_message = data.get("message", "").strip()
+    data = request.get_json(force=True)
+    message = data.get("message", "").strip()
 
-    if not user_message:
-        return jsonify({"response": "Please type a message."})
+    reply = get_answer(message)
+    return jsonify({"response": reply})
 
-    # Always returns string, so no need for try/except here
-    bot_response = get_answer(user_message)
-
-    return jsonify({"response": bot_response})
-
+# --------------------------------------------------
+# ENTRYPOINT (LOCAL ONLY)
+# --------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True)
-
