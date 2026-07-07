@@ -266,6 +266,13 @@ body, html {
     text-align: left; /* Ensure text aligns to the left */
 }
 
+/* Error message styling */
+.bot-message.error-message {
+    background-color: #ffebe9; /* Light red/pink background */
+    color: #d12420; /* Red text */
+    border: 1px solid #ffc8c6; /* Subtle red border */
+}
+
 
 
 

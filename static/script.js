@@ -89,10 +89,17 @@ async function sendMessage() {
         botAvatar.classList.add("bot-avatar");
         botMessageContainer.appendChild(botAvatar);
     
-        // Add bot message
+        // Add bot message or error
         const botMessageDiv = document.createElement("div");
         botMessageDiv.classList.add("bot-message");
-        botMessageDiv.textContent = data.response;
+        
+        if (!response.ok) {
+            botMessageDiv.classList.add("error-message");
+            botMessageDiv.textContent = data.error || "Sorry, something went wrong!";
+        } else {
+            botMessageDiv.textContent = data.response;
+        }
+        
         botMessageContainer.appendChild(botMessageDiv);
     
         // Append the bot message container to the chat body
@@ -100,10 +107,22 @@ async function sendMessage() {
     } catch (error) {
         console.error("Error:", error);
         chatBody.removeChild(thinkingDiv);
+        
+        const botMessageContainer = document.createElement("div");
+        botMessageContainer.classList.add("message-container");
+        
+        const botAvatar = document.createElement("img");
+        botAvatar.src = "/static/chatbot_icon.png";
+        botAvatar.alt = "Bot";
+        botAvatar.classList.add("bot-avatar");
+        botMessageContainer.appendChild(botAvatar);
+        
         const errorDiv = document.createElement("div");
-        errorDiv.classList.add("bot-message");
-        errorDiv.textContent = "Bot: Sorry, something went wrong!";
-        chatBody.appendChild(errorDiv);
+        errorDiv.classList.add("bot-message", "error-message");
+        errorDiv.textContent = "Unable to connect to the server. Please check your connection and try again.";
+        botMessageContainer.appendChild(errorDiv);
+        
+        chatBody.appendChild(botMessageContainer);
     }
     
     // Scroll to the bottom

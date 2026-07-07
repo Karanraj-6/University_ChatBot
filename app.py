@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify, render_template
-import os, time
+import os
+import time
 from dotenv import load_dotenv
 
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain_huggingface import HuggingFaceEndpoint
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEndpointEmbeddings
 
 # ---------------- ENV ----------------
 load_dotenv()
@@ -15,9 +15,12 @@ if not HF_TOKEN:
     raise RuntimeError("HUGGINGFACEHUB_API_TOKEN missing")
 
 # ---------------- LOAD MODELS ----------------
-print("Loading embeddings...")
+print("Loading embeddings (remote HuggingFace endpoint)...")
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-embeddings = SentenceTransformerEmbeddings(model_name=EMBED_MODEL)
+embeddings = HuggingFaceEndpointEmbeddings(
+    model=EMBED_MODEL,
+    huggingfacehub_api_token=HF_TOKEN
+)
 
 print("Loading FAISS index...")
 db = FAISS.load_local(
@@ -27,9 +30,9 @@ db = FAISS.load_local(
 )
 retriever = db.as_retriever(search_kwargs={"k": 4})
 
-print("Loading LLM...")
+print("Loading LLM (remote HuggingFace endpoint)...")
 llm = HuggingFaceEndpoint(
-    repo_id="Qwen/QwQ-32B-Preview",   
+    repo_id="Qwen/Qwen2.5-7B-Instruct",   
     huggingfacehub_api_token=HF_TOKEN,
     temperature=0.3,
     max_new_tokens=1024,
@@ -74,12 +77,9 @@ def get_answer(question: str) -> str:
     if not question:
         return "Please enter a valid question."
 
-    try:
-        res = qa_chain.invoke({"query": question})
-        return res.get("result", "").strip() or "No answer generated."
-    except Exception as e:
-        print("LLM error:", e)
-        return "The assistant is temporarily unavailable. Please try again."
+    # Exception bubbles up to the route handler so it can return correct HTTP status codes.
+    res = qa_chain.invoke({"query": question})
+    return res.get("result", "").strip() or "No answer generated."
 
 @app.route("/")
 def home():
@@ -88,7 +88,31 @@ def home():
 @app.route("/chat", methods=["POST"])
 def chat():
     msg = request.json.get("message", "")
-    return jsonify({"response": get_answer(msg)})
+    if not msg.strip():
+        return jsonify({"response": "Please type a message."})
+
+    try:
+        response = get_answer(msg)
+        return jsonify({"response": response})
+    except Exception as e:
+        error_msg = str(e)
+        print("LLM Error:", error_msg)
+        
+        # Categorize Hugging Face API errors
+        if "rate limit" in error_msg.lower() or "429" in error_msg:
+            status_code = 429
+            friendly_msg = "Hugging Face API rate limit reached. Please wait a minute before trying again."
+        elif "loading" in error_msg.lower() or "unavailable" in error_msg.lower() or "503" in error_msg or "estimated_time" in error_msg:
+            status_code = 503
+            friendly_msg = "The Hugging Face model is currently loading or warming up. Please try again in a few seconds."
+        elif "authorization" in error_msg.lower() or "token" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
+            status_code = 401
+            friendly_msg = "Authorization failed. Please check if your HUGGINGFACEHUB_API_TOKEN is valid."
+        else:
+            status_code = 500
+            friendly_msg = f"Sorry, an error occurred while processing your request: {error_msg}"
+            
+        return jsonify({"error": friendly_msg}), status_code
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
