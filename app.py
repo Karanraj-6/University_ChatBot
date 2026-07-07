@@ -1,13 +1,12 @@
 from flask import Flask, request, jsonify, render_template
 import os
 import time
+import requests
 from dotenv import load_dotenv
 
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEndpointEmbeddings
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
 
 # ---------------- ENV ----------------
 load_dotenv()
@@ -30,14 +29,6 @@ db = FAISS.load_local(
     allow_dangerous_deserialization=True
 )
 retriever = db.as_retriever(search_kwargs={"k": 4})
-
-print("Loading LLM (remote HuggingFace endpoint)...")
-llm = HuggingFaceEndpoint(
-    repo_id="Qwen/Qwen2.5-7B-Instruct",   
-    huggingfacehub_api_token=HF_TOKEN,
-    temperature=0.3,
-    max_new_tokens=1024,
-)
 
 # ---------------- PROMPT ----------------
 PROMPT = PromptTemplate(
@@ -66,14 +57,6 @@ Answer:
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-# Set up the QA chain globally using modern LCEL (fully compatible with Python 3.14)
-qa_chain = (
-    {"context": retriever | format_docs, "question": RunnablePassthrough()}
-    | PROMPT
-    | llm
-    | StrOutputParser()
-)
-
 print("All models loaded")
 
 # ---------------- FLASK ----------------
@@ -83,9 +66,45 @@ def get_answer(question: str) -> str:
     if not question:
         return "Please enter a valid question."
 
-    # Exception bubbles up to the route handler so it can return correct HTTP status codes.
-    res = qa_chain.invoke(question)
-    return res.strip()
+    # 1. Retrieve relevant documents
+    docs = retriever.invoke(question)
+    context_str = format_docs(docs)
+
+    # 2. Format the prompt
+    formatted_prompt = PROMPT.format(context=context_str, question=question)
+
+    # 3. Call HuggingFace Inference API directly (avoids routing / task-mapping ValueErrors)
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "inputs": formatted_prompt,
+        "parameters": {
+            "temperature": 0.3,
+            "max_new_tokens": 1024,
+            "return_full_text": False
+        }
+    }
+    
+    response = requests.post(
+        "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct",
+        headers=headers,
+        json=payload
+    )
+    
+    if response.status_code != 200:
+        raise RuntimeError(f"HuggingFace API error (Status {response.status_code}): {response.text}")
+        
+    result_json = response.json()
+    if isinstance(result_json, list) and len(result_json) > 0:
+        generated_text = result_json[0].get("generated_text", "")
+    elif isinstance(result_json, dict):
+        generated_text = result_json.get("generated_text", "")
+    else:
+        generated_text = str(result_json)
+        
+    return generated_text.strip()
 
 @app.route("/")
 def home():
