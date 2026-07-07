@@ -22,7 +22,7 @@ retriever = new_db.as_retriever()
 
 # Set up the HuggingFace LLM
 llm = HuggingFaceHub(
-    repo_id="Qwen/QwQ-32B-Preview",  
+    repo_id="Qwen/Qwen2.5-7B-Instruct",  
     huggingfacehub_api_token=hf_api_token,
     model_kwargs={"temperature": 0.4, "max_length": 5000},
     task="text-generation"  
@@ -90,7 +90,7 @@ def chat():
         if "rate limit" in error_msg.lower() or "429" in error_msg:
             status_code = 429
             friendly_msg = "Hugging Face API rate limit reached. Please wait a minute before trying again."
-        elif "loading" in error_msg.lower() or "503" in error_msg or "estimated_time" in error_msg:
+        elif "loading" in error_msg.lower() or "unavailable" in error_msg.lower() or "503" in error_msg or "estimated_time" in error_msg:
             status_code = 503
             friendly_msg = "The Hugging Face model is currently loading or warming up. Please try again in a few seconds."
         elif "authorization" in error_msg.lower() or "token" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
