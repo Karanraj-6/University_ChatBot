@@ -3,10 +3,11 @@ import os
 import time
 from dotenv import load_dotenv
 
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEndpointEmbeddings
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
 # ---------------- ENV ----------------
 load_dotenv()
@@ -61,11 +62,16 @@ Answer:
 """
 )
 
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=retriever,
-    chain_type="stuff",
-    chain_type_kwargs={"prompt": PROMPT},
+# Helper function to format the retrieved documents
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+# Set up the QA chain globally using modern LCEL (fully compatible with Python 3.14)
+qa_chain = (
+    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+    | PROMPT
+    | llm
+    | StrOutputParser()
 )
 
 print("All models loaded")
@@ -78,8 +84,8 @@ def get_answer(question: str) -> str:
         return "Please enter a valid question."
 
     # Exception bubbles up to the route handler so it can return correct HTTP status codes.
-    res = qa_chain.invoke({"query": question})
-    return res.get("result", "").strip() or "No answer generated."
+    res = qa_chain.invoke(question)
+    return res.strip()
 
 @app.route("/")
 def home():
