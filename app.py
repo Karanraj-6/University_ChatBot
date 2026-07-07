@@ -15,13 +15,13 @@ HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 if not HF_TOKEN:
     raise RuntimeError("HUGGINGFACEHUB_API_TOKEN missing")
 
-CHAT_MODEL_ID = "microsoft/Phi-3-mini-4k-instruct"
+CHAT_MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
 EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 
 # ---------------- HF INFERENCE CLIENT ----------------
 print("Loading Hugging Face Inference Client...")
 client = InferenceClient(
-    provider="hf-inference",
+    provider="auto",
     api_key=HF_TOKEN,
 )
 print("Inference client loaded.")
