@@ -7,7 +7,9 @@ langchain-community==0.3.13
 langchain-core==0.3.28
 langchain-huggingface==0.1.2
 
-huggingface_hub>=0.23.0,<1.0.0
+# Critical fixes:
+huggingface_hub==0.26.5
+transformers==4.47.1
 
 python-dotenv==1.0.1
 requests==2.32.3
