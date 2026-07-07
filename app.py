@@ -1,92 +1,104 @@
 from flask import Flask, request, jsonify, render_template
+import os
 import time
+from dotenv import load_dotenv
+
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFaceHub
-import os
-from langchain_community.embeddings import HuggingFaceHubEmbeddings  
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEndpointEmbeddings
 
+# ---------------- ENV ----------------
 load_dotenv()
-hf_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+if not HF_TOKEN:
+    raise RuntimeError("HUGGINGFACEHUB_API_TOKEN missing")
 
-# Initialize models globally for optimization (loaded only once on startup)
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-embeddings_model = HuggingFaceHubEmbeddings(
-    repo_id=model_name,
-    huggingfacehub_api_token=hf_api_token
-)
-new_db = FAISS.load_local("faiss_index", embeddings_model, allow_dangerous_deserialization=True)
-retriever = new_db.as_retriever()
-
-# Set up the HuggingFace LLM
-llm = HuggingFaceHub(
-    repo_id="Qwen/Qwen2.5-7B-Instruct",  
-    huggingfacehub_api_token=hf_api_token,
-    model_kwargs={"temperature": 0.4, "max_length": 5000},
-    task="text-generation"  
+# ---------------- LOAD MODELS ----------------
+print("Loading embeddings (remote HuggingFace endpoint)...")
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+embeddings = HuggingFaceEndpointEmbeddings(
+    model=EMBED_MODEL,
+    huggingfacehub_api_token=HF_TOKEN
 )
 
-prompt_template = PromptTemplate(
+print("Loading FAISS index...")
+db = FAISS.load_local(
+    "faiss_index",
+    embeddings,
+    allow_dangerous_deserialization=True
+)
+retriever = db.as_retriever(search_kwargs={"k": 4})
+
+print("Loading LLM (remote HuggingFace endpoint)...")
+llm = HuggingFaceEndpoint(
+    repo_id="Qwen/Qwen2.5-7B-Instruct",   
+    huggingfacehub_api_token=HF_TOKEN,
+    temperature=0.3,
+    max_new_tokens=1024,
+)
+
+# ---------------- PROMPT ----------------
+PROMPT = PromptTemplate(
     input_variables=["context", "question"],
-    template="""You are an AI assistant made for SR University. Use the provided context to answer the question.
-    Provide only the answer, not the context or instructions, Your great at providing revelent and meaningful answer to user. search for answer more deeply and clearly and check one again for verification.and make sure that you dont stop sentences generation in middle while providing answer to user. If the context does not contain the answer, respond with: 
-    "The context does not provide sufficient information. I couldn't find enough information. Please check back later or contact the SR University support team for more details. Contact: 0(870) 281-8333/8311 MAIL : info@sru.edu.in " Do not add any other information.
+    template="""
+You are an AI assistant for SR University.
 
-    Context: {context}
-    Question: {question}
+Answer ONLY using the context below.
+If the answer is not found, reply exactly:
 
-    Helpful Answer:
-    """ 
+"The context does not provide sufficient information. Please contact SR University support.
+Phone: 0870-281-8333 / 8311
+Email: info@sru.edu.in"
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
+"""
 )
 
-# Set up the QA chain globally
-qa_chain_with_memory = RetrievalQA.from_chain_type(
+qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     retriever=retriever,
-    chain_type="stuff", 
-    chain_type_kwargs={"prompt": prompt_template},  
-    return_source_documents=False,  
-    output_key="result"  
+    chain_type="stuff",
+    chain_type_kwargs={"prompt": PROMPT},
 )
 
-def get_answer(user_question):
-    # Exit the conversation if the user types 'exit' or 'quit'
-    if user_question.lower() in ["exit", "quit"]:
-        return "Thank you for using the Campus Assistant. Bye for now 😊!"
+print("All models loaded")
 
-    response = qa_chain_with_memory({"query": user_question})
-    answer = response.get('result', 'No answer provided').strip()
-    helpful_answer = answer.split("Helpful Answer:")[-1].strip()
-    return helpful_answer
-
+# ---------------- FLASK ----------------
 app = Flask(__name__)
 
-def query_model(user_question):
-    time.sleep(1)   # Simulate "thinking" time
-    answer = get_answer(user_question)  # Return the answer from the function here
-    return answer
+def get_answer(question: str) -> str:
+    if not question:
+        return "Please enter a valid question."
 
-@app.route('/')
+    # Exception bubbles up to the route handler so it can return correct HTTP status codes.
+    res = qa_chain.invoke({"query": question})
+    return res.get("result", "").strip() or "No answer generated."
+
+@app.route("/")
 def home():
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_message = data.get("message", "")
-    if user_message.strip() == "":
+    msg = request.json.get("message", "")
+    if not msg.strip():
         return jsonify({"response": "Please type a message."})
-    
+
     try:
-        # Process the message with the model
-        bot_response = query_model(user_message)
-        return jsonify({"response": bot_response})
+        response = get_answer(msg)
+        return jsonify({"response": response})
     except Exception as e:
         error_msg = str(e)
+        print("LLM Error:", error_msg)
         
-        # Categorize the Hugging Face API errors
+        # Categorize Hugging Face API errors
         if "rate limit" in error_msg.lower() or "429" in error_msg:
             status_code = 429
             friendly_msg = "Hugging Face API rate limit reached. Please wait a minute before trying again."
@@ -102,5 +114,5 @@ def chat():
             
         return jsonify({"error": friendly_msg}), status_code
 
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
