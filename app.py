@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify, render_template
 import os
-import time
-import requests
+import numpy as np
 from dotenv import load_dotenv
 
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_core.embeddings import Embeddings
+
+from huggingface_hub import InferenceClient
 
 # ---------------- ENV ----------------
 load_dotenv()
@@ -14,14 +15,44 @@ HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 if not HF_TOKEN:
     raise RuntimeError("HUGGINGFACEHUB_API_TOKEN missing")
 
-# ---------------- LOAD MODELS ----------------
-print("Loading embeddings (remote HuggingFace endpoint)...")
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-embeddings = HuggingFaceEndpointEmbeddings(
-    model=EMBED_MODEL,
-    huggingfacehub_api_token=HF_TOKEN
-)
+CHAT_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
+EMBED_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 
+# ---------------- HF INFERENCE CLIENT ----------------
+print("Loading Hugging Face Inference Client...")
+client = InferenceClient(
+    provider="hf-inference",
+    api_key=HF_TOKEN,
+)
+print("Inference client loaded.")
+
+# ---------------- EMBEDDINGS ADAPTER ----------------
+class HFHubEmbeddings(Embeddings):
+    """Wraps huggingface_hub.InferenceClient.feature_extraction to satisfy
+    LangChain's Embeddings interface (embed_documents / embed_query)."""
+
+    def __init__(self, client: InferenceClient, model_id: str):
+        self.client = client
+        self.model_id = model_id
+
+    def _embed(self, text: str) -> list[float]:
+        vec = self.client.feature_extraction(text, model=self.model_id)
+        arr = np.array(vec, dtype=np.float32)
+        # Some endpoints return token-level embeddings (2D) instead of a
+        # pooled sentence embedding (1D) — mean-pool if needed.
+        if arr.ndim == 2:
+            arr = arr.mean(axis=0)
+        return arr.tolist()
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed(t) for t in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text)
+
+embeddings = HFHubEmbeddings(client, EMBED_MODEL_ID)
+
+# ---------------- LOAD FAISS ----------------
 print("Loading FAISS index...")
 db = FAISS.load_local(
     "faiss_index",
@@ -53,7 +84,6 @@ Answer:
 """
 )
 
-# Helper function to format the retrieved documents
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
@@ -63,48 +93,22 @@ print("All models loaded")
 app = Flask(__name__)
 
 def get_answer(question: str) -> str:
-    if not question:
+    if not question.strip():
         return "Please enter a valid question."
 
-    # 1. Retrieve relevant documents
     docs = retriever.invoke(question)
     context_str = format_docs(docs)
-
-    # 2. Format the prompt
     formatted_prompt = PROMPT.format(context=context_str, question=question)
 
-    # 3. Call HuggingFace Inference API directly (avoids routing / task-mapping ValueErrors)
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "inputs": formatted_prompt,
-        "parameters": {
-            "temperature": 0.3,
-            "max_new_tokens": 1024,
-            "return_full_text": False
-        }
-    }
-    
-    response = requests.post(
-        "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct",
-        headers=headers,
-        json=payload
+    completion = client.chat.completions.create(
+        model=CHAT_MODEL_ID,
+        messages=[{"role": "user", "content": formatted_prompt}],
+        temperature=0.3,
+        max_tokens=1024,
     )
-    
-    if response.status_code != 200:
-        raise RuntimeError(f"HuggingFace API error (Status {response.status_code}): {response.text}")
-        
-    result_json = response.json()
-    if isinstance(result_json, list) and len(result_json) > 0:
-        generated_text = result_json[0].get("generated_text", "")
-    elif isinstance(result_json, dict):
-        generated_text = result_json.get("generated_text", "")
-    else:
-        generated_text = str(result_json)
-        
-    return generated_text.strip()
+
+    answer = completion.choices[0].message.content
+    return answer.strip() if answer else ""
 
 @app.route("/")
 def home():
@@ -122,21 +126,23 @@ def chat():
     except Exception as e:
         error_msg = str(e)
         print("LLM Error:", error_msg)
-        
-        # Categorize Hugging Face API errors
+
         if "rate limit" in error_msg.lower() or "429" in error_msg:
             status_code = 429
             friendly_msg = "Hugging Face API rate limit reached. Please wait a minute before trying again."
-        elif "loading" in error_msg.lower() or "unavailable" in error_msg.lower() or "503" in error_msg or "estimated_time" in error_msg:
+        elif "loading" in error_msg.lower() or "unavailable" in error_msg.lower() or "503" in error_msg:
             status_code = 503
             friendly_msg = "The Hugging Face model is currently loading or warming up. Please try again in a few seconds."
         elif "authorization" in error_msg.lower() or "token" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
             status_code = 401
             friendly_msg = "Authorization failed. Please check if your HUGGINGFACEHUB_API_TOKEN is valid."
+        elif "not supported" in error_msg.lower() or "provider" in error_msg.lower():
+            status_code = 400
+            friendly_msg = f"Model/provider issue: {error_msg}"
         else:
             status_code = 500
             friendly_msg = f"Sorry, an error occurred while processing your request: {error_msg}"
-            
+
         return jsonify({"error": friendly_msg}), status_code
 
 if __name__ == "__main__":

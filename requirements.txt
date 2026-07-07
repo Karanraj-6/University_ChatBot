@@ -2,14 +2,10 @@ Flask==3.1.0
 gunicorn==20.1.0
 faiss-cpu>=1.12.0
 
-langchain==0.3.13
-langchain-community==0.3.13
 langchain-core==0.3.28
-langchain-huggingface==0.1.2
+langchain-community==0.3.13
 
-# Critical fixes:
-huggingface_hub==0.26.5
-transformers==4.47.1
+huggingface_hub>=0.28,<1.0
+numpy>=1.26.0
 
 python-dotenv==1.0.1
-requests==2.32.3
